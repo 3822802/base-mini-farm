@@ -5,14 +5,12 @@
 export const BASE_CHAIN_ID = 8453 as const;
 export const BASE_RPC_URL = "https://mainnet.base.org" as const;
 
-// ⚠️ БИЛДЕР-КОД У ЭТОЙ АПКИ СВОЙ, НОВЫЙ.
-// НЕ использовать bc_892znyoo (это код baseapp2). Взять код и data suffix
-// из кабинета Base.dev именно для base-mini-farm и вписать сюда.
-// Пока пусто — атрибуция не приклеивается (транзакции проходят, но в статистику
-// апки не идут). Тест sanity-check в constants.test.ts не даст вписать
-// суффикс, не совпадающий с кодом.
-export const BUILDER_CODE = "" as string;
-export const BUILDER_DATA_SUFFIX = "" as `0x${string}` | "";
+// Билдер-код ЭТОЙ апки (base-mini-farm) — из её кабинета Base.dev.
+// НЕ bc_892znyoo (это код baseapp2). Суффикс кодирует именно этот код —
+// проверено: первые байты = hex("bc_b21e0p17"), байт длины 0x0b = 11.
+export const BUILDER_CODE = "bc_b21e0p17" as string;
+export const BUILDER_DATA_SUFFIX =
+  "0x62635f62323165307031370b0080218021802180218021802180218021" as `0x${string}` | "";
 
 // Адреса задеплоенных контрактов (Base mainnet).
 export const CONTRACTS = {
