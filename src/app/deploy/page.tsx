@@ -41,8 +41,9 @@ export default function Deploy() {
   const [nftSymbol, setNftSymbol] = useState("FNFT");
   const [nftBaseURI, setNftBaseURI] = useState("");
   const [badgesURI, setBadgesURI] = useState("");
-  const [tokensPerEth, setTokensPerEth] = useState("1000000"); // целых токенов за 1 ETH
-  const [nftPriceTokens, setNftPriceTokens] = useState("10");   // цена NFT в целых токенах
+  // 1 млрд токенов за 1 ETH ⇒ 0.000001 ETH даёт 1000 токенов (как в baseapp2).
+  const [tokensPerEth, setTokensPerEth] = useState("1000000000");
+  const [nftPriceTokens, setNftPriceTokens] = useState("10"); // цена NFT в целых токенах
   const [renounceToken, setRenounceToken] = useState(true);
 
   // Адреса задеплоенного.
