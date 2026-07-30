@@ -1,203 +1,170 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { base } from "wagmi/chains";
-import type { Abi, Address } from "viem";
+import { zeroAddress, type Abi, type Address } from "viem";
 import { ConnectButton } from "@/components/ConnectButton";
+import { tokensPerEthParam, nftPriceParam } from "@/lib/pricing";
 import artifacts from "@/lib/artifacts.json";
 
-// Деплой-инструмент. Разворачивает 5 контрактов в правильном порядке, сам
-// прокидывает адреса между шагами, связывает setHub и делает renounce токена.
-// Пользователь только подписывает каждую транзакцию в кошельке.
+// Деплой-инструмент. Разворачивает 5 контрактов, сам прокидывает адреса между
+// шагами, связывает setHub и делает renounce токена. Пользователь только
+// подписывает каждую транзакцию.
 //
-// Порядок критичен: сначала 4 сателлита, потом Hub с их адресами, потом
-// setHub на каждом сателлите (одноразовый и необратимый — поэтому порядок
-// зашит, а не вводится руками).
+// ВАЖНО: адреса ведём в ЛОКАЛЬНОМ аккумуляторе внутри runAll, а не берём из
+// React-состояния в замыканиях — иначе setHub видел бы устаревший (пустой)
+// адрес Hub и ревертил ZeroHub. Порядок деплоя зашит: setHub одноразовый.
+// Прогон возобновляемый: уже задеплоенное и уже связанное пропускается.
 
 type Art = { abi: Abi; bytecode: `0x${string}` };
 const A = artifacts as unknown as Record<string, Art>;
 
-type StepState = "pending" | "running" | "done" | "error";
-type Step = {
-  key: string;
-  label: string;
-  run: () => Promise<void>;
-  state: StepState;
-  note?: string;
-};
-
-const TOKEN_WEI = 10n ** 18n;
+// Порядок сателлитов для деплоя и связки.
+const SATS = ["GameToken", "GameNFT", "GameBadges", "GameLeaderboard"] as const;
 
 export default function Deploy() {
   const { isConnected } = useAccount();
   const { data: wallet } = useWalletClient();
   const publicClient = usePublicClient();
 
-  // Параметры деплоя.
   const [tokenName, setTokenName] = useState("Farm Token");
   const [tokenSymbol, setTokenSymbol] = useState("FARM");
   const [nftName, setNftName] = useState("Farm NFT");
   const [nftSymbol, setNftSymbol] = useState("FNFT");
   const [nftBaseURI, setNftBaseURI] = useState("");
   const [badgesURI, setBadgesURI] = useState("");
-  // 1 млрд токенов за 1 ETH ⇒ 0.000001 ETH даёт 1000 токенов (как в baseapp2).
   const [tokensPerEth, setTokensPerEth] = useState("1000000000");
-  const [nftPriceTokens, setNftPriceTokens] = useState("10"); // цена NFT в целых токенах
+  const [nftPriceTokens, setNftPriceTokens] = useState("10");
   const [renounceToken, setRenounceToken] = useState(true);
 
-  // Адреса задеплоенного.
   const [addr, setAddr] = useState<Record<string, Address>>({});
+  const [doneWiring, setDoneWiring] = useState<Record<string, boolean>>({});
   const [log, setLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [tick, setTick] = useState(0); // форс-ререндер статусов шагов
 
   const say = (m: string) => setLog((l) => [...l, m]);
 
-  async function deploy(name: string, args: unknown[]): Promise<Address> {
-    if (!wallet || !publicClient) throw new Error("кошелёк недоступен");
-    const hash = await wallet.deployContract({
+  async function deployOne(name: string, args: unknown[]): Promise<Address> {
+    const hash = await wallet!.deployContract({
       abi: A[name].abi,
       bytecode: A[name].bytecode,
       args,
       chain: base,
     });
-    say(`${name}: транзакция ${hash.slice(0, 12)}… ждём сеть`);
-    const r = await publicClient.waitForTransactionReceipt({ hash });
+    say(`${name}: ${hash.slice(0, 12)}… ждём сеть`);
+    const r = await publicClient!.waitForTransactionReceipt({ hash });
     if (!r.contractAddress) throw new Error(`${name}: нет адреса в квитанции`);
     setAddr((a) => ({ ...a, [name]: r.contractAddress as Address }));
-    say(`${name} задеплоен: ${r.contractAddress}`);
+    say(`✅ ${name}: ${r.contractAddress}`);
     return r.contractAddress;
   }
 
-  async function call(address: Address, name: string, fn: string, args: unknown[] = []) {
-    if (!wallet || !publicClient) throw new Error("кошелёк недоступен");
-    const hash = await wallet.writeContract({
+  async function callOne(address: Address, name: string, fn: string, args: unknown[] = []) {
+    const hash = await wallet!.writeContract({
       address,
       abi: A[name].abi,
       functionName: fn,
       args,
       chain: base,
     });
-    await publicClient.waitForTransactionReceipt({ hash });
-    say(`${name}.${fn}() выполнено`);
+    await publicClient!.waitForTransactionReceipt({ hash });
+    say(`✅ ${name}.${fn}()`);
   }
 
-  // Список шагов пересобираем по ходу — later-шаги используют addr из state.
-  const steps: Step[] = useMemo(() => {
-    const done = (k: string) => (addr[k] ? "done" : "pending") as StepState;
-    const perEth = (() => {
-      try {
-        return BigInt(tokensPerEth) * TOKEN_WEI;
-      } catch {
-        return 0n;
-      }
-    })();
-    const price = (() => {
-      try {
-        return BigInt(nftPriceTokens) * TOKEN_WEI;
-      } catch {
-        return 0n;
-      }
-    })();
-
-    return [
-      {
-        key: "GameToken",
-        label: "1. Деплой GameToken",
-        state: done("GameToken"),
-        run: async () => void (await deploy("GameToken", [tokenName, tokenSymbol])),
-      },
-      {
-        key: "GameNFT",
-        label: "2. Деплой GameNFT",
-        state: done("GameNFT"),
-        run: async () => void (await deploy("GameNFT", [nftName, nftSymbol, nftBaseURI])),
-      },
-      {
-        key: "GameBadges",
-        label: "3. Деплой GameBadges",
-        state: done("GameBadges"),
-        run: async () => void (await deploy("GameBadges", [badgesURI])),
-      },
-      {
-        key: "GameLeaderboard",
-        label: "4. Деплой GameLeaderboard",
-        state: done("GameLeaderboard"),
-        run: async () => void (await deploy("GameLeaderboard", [])),
-      },
-      {
-        key: "GameHub",
-        label: "5. Деплой GameHub (связывает всё)",
-        state: done("GameHub"),
-        run: async () =>
-          void (await deploy("GameHub", [
-            addr.GameToken,
-            addr.GameNFT,
-            addr.GameBadges,
-            addr.GameLeaderboard,
-            perEth,
-            price,
-          ])),
-      },
-      {
-        key: "hub:token",
-        label: "6. GameToken.setHub(hub)",
-        state: "pending",
-        run: async () => call(addr.GameToken, "GameToken", "setHub", [addr.GameHub]),
-      },
-      {
-        key: "hub:nft",
-        label: "7. GameNFT.setHub(hub)",
-        state: "pending",
-        run: async () => call(addr.GameNFT, "GameNFT", "setHub", [addr.GameHub]),
-      },
-      {
-        key: "hub:badges",
-        label: "8. GameBadges.setHub(hub)",
-        state: "pending",
-        run: async () => call(addr.GameBadges, "GameBadges", "setHub", [addr.GameHub]),
-      },
-      {
-        key: "hub:board",
-        label: "9. GameLeaderboard.setHub(hub)",
-        state: "pending",
-        run: async () => call(addr.GameLeaderboard, "GameLeaderboard", "setHub", [addr.GameHub]),
-      },
-      ...(renounceToken
-        ? [
-            {
-              key: "renounce:token",
-              label: "10. GameToken.renounceOwnership() (владелец больше не нужен)",
-              state: "pending" as StepState,
-              run: async () =>
-                call(addr.GameToken, "GameToken", "renounceOwnership", []),
-            },
-          ]
-        : []),
-    ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addr, tokenName, tokenSymbol, nftName, nftSymbol, nftBaseURI, badgesURI, tokensPerEth, nftPriceTokens, renounceToken, tick]);
-
-  // Прогоняем шаги по очереди, начиная с первого невыполненного.
   async function runAll() {
-    if (!isConnected || !wallet) return;
+    if (!isConnected || !wallet || !publicClient) return;
     setBusy(true);
     try {
-      for (const s of steps) {
-        if (s.state === "done") continue;
-        say(`▶ ${s.label}`);
-        await s.run();
-        setTick((t) => t + 1);
+      // Локальный аккумулятор: старт из уже задеплоенного (возобновление).
+      const d: Record<string, Address> = { ...addr };
+      const done = { ...doneWiring };
+
+      const perEth = tokensPerEthParam(BigInt(tokensPerEth));
+      const price = nftPriceParam(BigInt(nftPriceTokens));
+
+      // 1–4: сателлиты
+      const satArgs: Record<string, unknown[]> = {
+        GameToken: [tokenName, tokenSymbol],
+        GameNFT: [nftName, nftSymbol, nftBaseURI],
+        GameBadges: [badgesURI],
+        GameLeaderboard: [],
+      };
+      for (const name of SATS) {
+        if (!d[name]) {
+          say(`▶ Деплой ${name}`);
+          d[name] = await deployOne(name, satArgs[name]);
+        }
       }
-      say("✅ Готово. Скопируй адреса в src/lib/constants.ts");
+
+      // 5: Hub с адресами сателлитов
+      if (!d.GameHub) {
+        say("▶ Деплой GameHub");
+        d.GameHub = await deployOne("GameHub", [
+          d.GameToken,
+          d.GameNFT,
+          d.GameBadges,
+          d.GameLeaderboard,
+          perEth,
+          price,
+        ]);
+      }
+
+      // 6–9: setHub на каждом сателлите (используем локальный d.GameHub!).
+      // Идемпотентно: если хаб уже прописан ончейн — пропускаем (возобновление).
+      for (const name of SATS) {
+        const key = `wire:${name}`;
+        if (done[key]) continue;
+        const current = (await publicClient.readContract({
+          address: d[name],
+          abi: A[name].abi,
+          functionName: "hub",
+        })) as Address;
+        if (current !== zeroAddress) {
+          say(`↷ ${name}: хаб уже прописан, пропускаю`);
+        } else {
+          say(`▶ ${name}.setHub(hub)`);
+          await callOne(d[name], name, "setHub", [d.GameHub]);
+        }
+        done[key] = true;
+        setDoneWiring({ ...done });
+      }
+
+      // 10: renounce токена. Идемпотентно: если владелец уже нулевой — пропуск.
+      if (renounceToken && !done["renounce:token"]) {
+        const owner = (await publicClient.readContract({
+          address: d.GameToken,
+          abi: A.GameToken.abi,
+          functionName: "owner",
+        })) as Address;
+        if (owner === zeroAddress) {
+          say("↷ токен уже без владельца, пропускаю renounce");
+        } else {
+          say("▶ GameToken.renounceOwnership()");
+          await callOne(d.GameToken, "GameToken", "renounceOwnership", []);
+        }
+        done["renounce:token"] = true;
+        setDoneWiring({ ...done });
+      }
+
+      say("✅ Готово. Скопируй адреса ниже в src/lib/constants.ts");
     } catch (e) {
       say(`❌ ${e instanceof Error ? e.message : String(e)}`);
     }
     setBusy(false);
   }
 
-  const constantsSnippet =
+  // Список для отображения (без замыканий — просто статусы).
+  const rows: { label: string; done: boolean }[] = [
+    ...SATS.map((n, i) => ({ label: `${i + 1}. Деплой ${n}`, done: !!addr[n] })),
+    { label: "5. Деплой GameHub (связывает всё)", done: !!addr.GameHub },
+    ...SATS.map((n, i) => ({ label: `${6 + i}. ${n}.setHub(hub)`, done: !!doneWiring[`wire:${n}`] })),
+    ...(renounceToken
+      ? [{ label: "10. GameToken.renounceOwnership()", done: !!doneWiring["renounce:token"] }]
+      : []),
+  ];
+
+  const snippet =
     addr.GameHub &&
     `export const CONTRACTS = {
   token: "${addr.GameToken}",
@@ -217,30 +184,14 @@ export default function Deploy() {
       </header>
 
       <section className="grid grid-cols-2 gap-3">
-        <label className="text-xs text-white/60">Имя токена
-          <input className={input} value={tokenName} onChange={(e) => setTokenName(e.target.value)} />
-        </label>
-        <label className="text-xs text-white/60">Символ токена
-          <input className={input} value={tokenSymbol} onChange={(e) => setTokenSymbol(e.target.value)} />
-        </label>
-        <label className="text-xs text-white/60">Имя NFT
-          <input className={input} value={nftName} onChange={(e) => setNftName(e.target.value)} />
-        </label>
-        <label className="text-xs text-white/60">Символ NFT
-          <input className={input} value={nftSymbol} onChange={(e) => setNftSymbol(e.target.value)} />
-        </label>
-        <label className="text-xs text-white/60">Base URI метаданных NFT (можно позже)
-          <input className={input} value={nftBaseURI} onChange={(e) => setNftBaseURI(e.target.value)} placeholder="ipfs://… или https://…/api/nft/" />
-        </label>
-        <label className="text-xs text-white/60">URI метаданных бейджей (можно позже)
-          <input className={input} value={badgesURI} onChange={(e) => setBadgesURI(e.target.value)} placeholder="ipfs://…" />
-        </label>
-        <label className="text-xs text-white/60">Токенов за 1 ETH
-          <input className={input} value={tokensPerEth} onChange={(e) => setTokensPerEth(e.target.value)} />
-        </label>
-        <label className="text-xs text-white/60">Цена NFT (в токенах)
-          <input className={input} value={nftPriceTokens} onChange={(e) => setNftPriceTokens(e.target.value)} />
-        </label>
+        <Field label="Имя токена" v={tokenName} on={setTokenName} c={input} />
+        <Field label="Символ токена" v={tokenSymbol} on={setTokenSymbol} c={input} />
+        <Field label="Имя NFT" v={nftName} on={setNftName} c={input} />
+        <Field label="Символ NFT" v={nftSymbol} on={setNftSymbol} c={input} />
+        <Field label="Base URI NFT (можно позже)" v={nftBaseURI} on={setNftBaseURI} c={input} ph="ipfs://… или https://…/api/nft/" />
+        <Field label="URI бейджей (можно позже)" v={badgesURI} on={setBadgesURI} c={input} ph="ipfs://…" />
+        <Field label="Токенов за 1 ETH" v={tokensPerEth} on={setTokensPerEth} c={input} />
+        <Field label="Цена NFT (в токенах)" v={nftPriceTokens} on={setNftPriceTokens} c={input} />
       </section>
 
       <label className="flex items-center gap-2 text-sm text-white/70">
@@ -248,11 +199,40 @@ export default function Deploy() {
         renounce владельца токена после связки (рекомендовано аудитом)
       </label>
 
+      {/* Возобновление: если контракты уже задеплоены — вставь адреса, и деплой
+          их пропустит, выполнив только связку setHub и renounce. */}
+      <details className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+        <summary className="cursor-pointer text-sm text-amber-300">
+          Возобновить (контракты уже задеплоены — вставь адреса)
+        </summary>
+        <div className="mt-3 grid grid-cols-1 gap-2">
+          {(["GameToken", "GameNFT", "GameBadges", "GameLeaderboard", "GameHub"] as const).map((n) => (
+            <label key={n} className="text-xs text-white/60">
+              {n}
+              <input
+                className={input}
+                value={addr[n] ?? ""}
+                onChange={(e) =>
+                  setAddr((a) => {
+                    const v = e.target.value.trim();
+                    const next = { ...a };
+                    if (v) next[n] = v as Address;
+                    else delete next[n];
+                    return next;
+                  })
+                }
+                placeholder="0x…"
+              />
+            </label>
+          ))}
+        </div>
+      </details>
+
       <ol className="flex flex-col gap-1 text-sm">
-        {steps.map((s) => (
-          <li key={s.key} className="flex items-center gap-2">
-            <span>{s.state === "done" ? "✅" : "▫️"}</span>
-            <span className={s.state === "done" ? "text-white/50 line-through" : ""}>{s.label}</span>
+        {rows.map((r, i) => (
+          <li key={i} className="flex items-center gap-2">
+            <span>{r.done ? "✅" : "▫️"}</span>
+            <span className={r.done ? "text-white/50 line-through" : ""}>{r.label}</span>
           </li>
         ))}
       </ol>
@@ -266,15 +246,34 @@ export default function Deploy() {
       </button>
       {!isConnected && <p className="text-center text-xs text-white/50">Сначала подключи кошелёк.</p>}
 
-      {constantsSnippet && (
-        <pre className="overflow-x-auto rounded-lg border border-white/15 bg-black/40 p-3 text-xs">
-          {constantsSnippet}
-        </pre>
+      {snippet && (
+        <pre className="overflow-x-auto rounded-lg border border-white/15 bg-black/40 p-3 text-xs">{snippet}</pre>
       )}
 
       <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs leading-5 text-white/70">
         {log.length === 0 ? "Лог появится здесь." : log.map((l, i) => <div key={i}>{l}</div>)}
       </div>
     </main>
+  );
+}
+
+function Field({
+  label,
+  v,
+  on,
+  c,
+  ph,
+}: {
+  label: string;
+  v: string;
+  on: (s: string) => void;
+  c: string;
+  ph?: string;
+}) {
+  return (
+    <label className="text-xs text-white/60">
+      {label}
+      <input className={c} value={v} onChange={(e) => on(e.target.value)} placeholder={ph} />
+    </label>
   );
 }
