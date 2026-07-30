@@ -162,9 +162,12 @@ export function MarioFarm() {
 
   return (
     <div className="sky relative flex h-[100dvh] w-full flex-col overflow-hidden">
-      {/* облака */}
-      <span className="cloud" style={{ top: "12%", left: "10%" }} />
-      <span className="cloud" style={{ top: "20%", right: "14%" }} />
+      {/* облака — заполняют небо, чтобы не пустовало */}
+      <span className="cloud" style={{ top: "10%", left: "8%" }} />
+      <span className="cloud" style={{ top: "16%", right: "12%" }} />
+      <span className="cloud" style={{ top: "30%", left: "22%" }} />
+      <span className="cloud" style={{ top: "40%", right: "20%" }} />
+      <span className="cloud" style={{ top: "26%", left: "60%" }} />
 
       {/* шапка */}
       <header className="relative z-10 flex items-center justify-between p-4">
@@ -179,32 +182,44 @@ export function MarioFarm() {
 
       {/* сцена */}
       <div ref={sceneRef} className="relative flex-1">
-        {/* ящики */}
-        <div className="absolute left-0 right-0 top-[18%] flex items-start justify-around px-4">
+        {/* ящики: подпись НАД ящиком, сами ящики на высоте прыжка (bottom) */}
+        <div className="absolute inset-x-0 flex items-end justify-around px-5" style={{ bottom: 196 }}>
           {BOXES.map((b, i) => (
-            <button
-              key={b.key}
-              ref={(el) => { boxRefs.current[i] = el; }}
-              onClick={() => activate(i)}
-              disabled={phase !== "idle" || !isConnected}
-              className={`qbox relative flex h-16 w-16 items-center justify-center rounded text-[9px] font-bold disabled:opacity-80 ${
-                hit === i ? "qbox-hit" : ""
-              }`}
-            >
-              {hit === i && <span className="coin" style={{ left: "50%", marginLeft: -11, top: -6 }} />}
-              {b.label}
-            </button>
+            <div key={b.key} className="flex flex-col items-center gap-1.5">
+              <span className="rounded bg-black/55 px-1.5 py-0.5 text-[7px] leading-3 text-white">
+                {b.label}
+              </span>
+              <button
+                ref={(el) => { boxRefs.current[i] = el; }}
+                onClick={() => activate(i)}
+                disabled={phase !== "idle" || !isConnected}
+                aria-label={b.label}
+                className={`qbox relative flex h-14 w-14 items-center justify-center rounded text-2xl font-black disabled:opacity-80 ${
+                  hit === i ? "qbox-hit" : ""
+                }`}
+              >
+                {hit === i && <span className="coin" style={{ left: "50%", marginLeft: -11, top: -6 }} />}
+                ?
+              </button>
+            </div>
           ))}
         </div>
 
+        {/* кусты вдоль пола — заполняют низ, как в SMB */}
+        <div className="absolute inset-x-0 bottom-0 z-0 flex items-end justify-between px-2">
+          <span className="bush" style={{ width: 90 }} />
+          <span className="bush" style={{ width: 130 }} />
+          <span className="bush" style={{ width: 70 }} />
+        </div>
+
         {/* человечек стоит на полу сцены */}
-        <div className={heroCls} style={{ left: heroLeft, bottom: 0 }}>
+        <div className={`z-10 ${heroCls}`} style={{ left: heroLeft, bottom: 0 }}>
           <Hero />
         </div>
       </div>
 
       {/* пол */}
-      <div className="ground relative z-10 h-14 w-full" />
+      <div className="ground relative z-10 h-16 w-full" />
 
       {!isConnected && (
         <div className="absolute inset-x-0 bottom-16 z-20 text-center text-[10px] text-white [text-shadow:1px_1px_0_#000]">

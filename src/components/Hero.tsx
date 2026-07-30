@@ -1,32 +1,48 @@
-// Пиксельный человечек в духе Марио (без внешнего арта — рисуем прямоугольниками).
+// Пиксельный Марио — рисуем по карте, чтобы был узнаваемым (кепка, усы,
+// синий комбинезон, бегущие ноги). Без внешнего арта.
+const COLORS: Record<string, string> = {
+  R: "#e52521", // красный (кепка, рубашка)
+  S: "#ffb27a", // кожа
+  H: "#7a3b10", // волосы/усы/бакенбарды
+  B: "#2a3fd0", // синий комбинезон
+  Y: "#f7c331", // пуговица
+  K: "#000000", // глаз
+  W: "#5a3410", // ботинки
+};
+
+// 13 столбцов × 16 строк.
+const MAP = [
+  "   RRRRR     ",
+  "  RRRRRRRRR  ",
+  "  HHHSSSSSS  ",
+  " HSHSSSKSSS  ",
+  " HSHHSSKSSSS ",
+  " HHSSSSSSSS  ",
+  "  SHHHHHSS   ",
+  "  RRRRRRRR   ",
+  " SRRRRBRRRRS ",
+  " SRRRBBBRRRS ",
+  "  RRBBYBBRR  ",
+  "  BBBBBBBB   ",
+  "  BBB BBB    ",
+  " BBB   BBB   ",
+  " WWW   BBB   ",
+  " WWWW WWWW   ",
+];
+
 export function Hero() {
-  const P = ({ x, y, w, h, c }: { x: number; y: number; w: number; h: number; c: string }) => (
-    <rect x={x} y={y} width={w} height={h} fill={c} />
-  );
+  const rects: React.ReactNode[] = [];
+  MAP.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x];
+      if (ch !== " " && COLORS[ch]) {
+        rects.push(<rect key={`${x}-${y}`} x={x} y={y} width={1} height={1} fill={COLORS[ch]} />);
+      }
+    }
+  });
   return (
-    <svg viewBox="0 0 12 16" width="48" height="64" shapeRendering="crispEdges">
-      {/* кепка */}
-      <P x={3} y={0} w={6} h={1} c="#e52521" />
-      <P x={2} y={1} w={8} h={1} c="#e52521" />
-      {/* лицо */}
-      <P x={3} y={2} w={6} h={2} c="#ffc9a0" />
-      <P x={8} y={2} w={1} h={1} c="#000" /> {/* глаз */}
-      <P x={3} y={3} w={2} h={1} c="#7a4a1e" /> {/* усы */}
-      <P x={7} y={3} w={2} h={1} c="#7a4a1e" />
-      {/* рубашка */}
-      <P x={3} y={4} w={6} h={1} c="#e52521" />
-      {/* комбинезон + руки */}
-      <P x={2} y={5} w={8} h={3} c="#3a5bdc" />
-      <P x={2} y={5} w={1} h={3} c="#ffc9a0" /> {/* рука */}
-      <P x={9} y={5} w={1} h={3} c="#ffc9a0" /> {/* рука */}
-      <P x={4} y={5} w={4} h={2} c="#e52521" /> {/* грудь-рубашка */}
-      <P x={5} y={6} w={1} h={1} c="#f7b500" /> {/* пуговица */}
-      {/* ноги */}
-      <P x={3} y={8} w={2} h={5} c="#3a5bdc" />
-      <P x={7} y={8} w={2} h={5} c="#3a5bdc" />
-      {/* ботинки */}
-      <P x={2} y={13} w={3} h={2} c="#5a3410" />
-      <P x={7} y={13} w={3} h={2} c="#5a3410" />
+    <svg viewBox="0 0 13 16" width="52" height="64" shapeRendering="crispEdges">
+      {rects}
     </svg>
   );
 }
