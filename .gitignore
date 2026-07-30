@@ -21,3 +21,6 @@ AUDIT*.md
 # ОС
 .DS_Store
 Thumbs.db
+
+# next автогенерация
+next-env.d.ts
