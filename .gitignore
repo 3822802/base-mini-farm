@@ -24,3 +24,6 @@ Thumbs.db
 
 # next автогенерация
 next-env.d.ts
+
+# генерируемый файл верификации
+verify/standard-input.json
