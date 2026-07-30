@@ -24,6 +24,9 @@ export const CONTRACTS = {
   hub: "" as `0x${string}` | "",
 } as const;
 
+// Сумма одной покупки токена — микро, чтобы касание стоило доли цента.
+export const BUY_ETH_WEI = 10n ** 12n; // 0.000001 ETH
+
 // Явные лимиты газа для действий (кошельки иногда занижают на цепочках L2).
 export const GAS = {
   buy: 300_000n,
