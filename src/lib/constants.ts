@@ -14,14 +14,13 @@ export const BASE_RPC_URL = "https://mainnet.base.org" as const;
 export const BUILDER_CODE = "" as string;
 export const BUILDER_DATA_SUFFIX = "" as `0x${string}` | "";
 
-// Адреса контрактов — заполняются деплой-страницей после деплоя.
-// Пусто = апка знает, что контракты ещё не задеплоены, и блокирует кнопки.
+// Адреса задеплоенных контрактов (Base mainnet).
 export const CONTRACTS = {
-  token: "" as `0x${string}` | "",
-  nft: "" as `0x${string}` | "",
-  badges: "" as `0x${string}` | "",
-  leaderboard: "" as `0x${string}` | "",
-  hub: "" as `0x${string}` | "",
+  token: "0x0bfcffbb981d0e7ea0b07f1beaa1bc4aa40570e9" as `0x${string}` | "",
+  nft: "0x8f33e2647b57b82194018eaf3df0a48d69675492" as `0x${string}` | "",
+  badges: "0xaebe8a33b6cfa55c91a1c94698b82f85d3baf508" as `0x${string}` | "",
+  leaderboard: "0x005944a6a88fc7c6b323298e47a1f6f671835db1" as `0x${string}` | "",
+  hub: "0x6673a974af085cd3e343d12481dd21eaff7bb2f9" as `0x${string}` | "",
 } as const;
 
 // Сумма одной покупки токена — микро, чтобы касание стоило доли цента.
