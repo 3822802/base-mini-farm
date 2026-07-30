@@ -1,0 +1,23 @@
+# зависимости
+node_modules/
+
+# сборки
+.next/
+out/
+dist/
+artifacts/
+cache/
+
+# окружение и секреты
+.env
+.env.local
+.env*.local
+
+# аудиты и черновики — в репозиторий не кладём
+audit/
+*.audit.md
+AUDIT*.md
+
+# ОС
+.DS_Store
+Thumbs.db
